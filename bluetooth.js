@@ -1,101 +1,120 @@
-const DMX_DATA_SERVICE_UUID = 'bfa00000-247d-6e1c-448c-223dfa0bd00c';
-const DMX_CHARACTERISTIC_UUID = 'bfa00001-247d-6e1c-448c-223dfa0bd00c';
+// This JavaScript file contains code to communicate with a Bluetooth device
+// using the Web Bluetooth API. The code is organized in the following way:
 
-// Flag to check if the device is connected
-let isConnected = false;
-// Array to store the values of the 512 channels
-let channels = new Uint8Array(512);
-// Array to track whether each slot has been written
-let slotWritten = new Array(512).fill(false);
+// 1. Declare UUIDs for the Bluetooth service and characteristic
+//    that we want to access.
+const SERVICE_UUID = 'bfa00000-247d-6e1c-448c-223dfa0bd00c'; // UUID of the service that we want to access
+const CHARACTERISTIC_UUID = 'bfa00001-247d-6e1c-448c-223dfa0bd00c'; // UUID of the characteristic within the service that we want to access
 
-let device;
+// 2. Declare global variables to keep track of the state of the
+//    Bluetooth connection and the connected device.
+let isConnected = false; // Is the device currently connected to the Bluetooth server?
+let device; // The connected device
 
-// --------------------------------------------------------
-const MTU = 247; // Maximum Transmission Unit
-const TOTAL_SLOTS = 512; // Total number of slots
-const TARGET_VALUE = 255; // The value to set for all slots
-const COMMAND_ID = 0x04; // Example command identifier
-const START_SLOT = 0x00; // Example starting slot (adjust as needed)
+// 3. Define constants for the maximum transmission unit (MTU) and
+//    the total number of slots in the DMX data.
+const MAX_TRANSMISSION_UNIT = 247; // Maximum size of the data transfer in bytes
+const TOTAL_SLOTS = 512; // Total number of slots in the DMX data
 
-// Function to create chunks adhering to MTU
-function splitIntoChunks(buffer, chunkSize) {
-    const chunks = [];
-    for (let i = 0; i < buffer.length; i += chunkSize) {
-        chunks.push(buffer.slice(i, i + chunkSize));
+// 4. Define constants for the target value and command ID that we
+//    will use when sending DMX data.
+const TARGET_VALUE = 255; // Target value for each DMX slot
+const COMMAND_ID = 0x04; // Command ID for sending DMX data (0x04 = write to slots)
+const START_SLOT = 0x00; // Start slot (0x00 = first slot)
+
+// 5. Function to scan for nearby Bluetooth devices and connect to the selected device
+//    when a device is selected.
+async function scanForDevices() {
+    // Try to request a Bluetooth device from the user.
+    try {
+        // Request Bluetooth device with the specified parameters.
+        const device = await navigator.bluetooth.requestDevice({
+            acceptAllDevices: true, // Scan for all nearby Bluetooth devices
+            optionalServices: [SERVICE_UUID] // Add the UUID of the service we want to access
+        });
+
+        // Log the name of the found device.
+        console.log('Found device:', device.name);
+
+        // Call function to connect to the device and send DMX data.
+        await connectToDevice(device);
+
+    // Catch error if user cancels the device selection dialog.
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'NotFoundError') {
+            console.log('Scanning for devices canceled by the user.');
+        } else {
+            console.error('Scanning error:', error);
+        }
     }
-    return chunks;
 }
 
-// Function to create command buffer for a specific slot range
-function createCommandBuffer(startSlot, values) {
-    const buffer = [COMMAND_ID, values.length, startSlot, ...values];
-    return buffer;
-}
-
-// Simulated function to write the command buffer to the BLE characteristic
-async function writeBufferToCharacteristic(buffer) {
-    // Replace with your actual BLE characteristic writing logic
-    console.log('Writing buffer to characteristic:', buffer.map(v => v.toString(16).padStart(2, '0')));
-    await new Promise((resolve) => setTimeout(resolve, 100)); // Simulate delay
-}
-
-// Function to set all slots to a specific value
-async function setAllSlotsToValue(value, totalSlots, mtu) {
-    // Prepare an array filled with the desired value
-    const allValues = new Array(totalSlots).fill(value);
-
-    // Split this array into chunks that adhere to MTU
-    const chunks = splitIntoChunks(allValues, mtu - 3); // Adjust for command bytes overhead
-
-    // Write each chunk to the BLE characteristic with an appropriate starting slot
-    let currentSlot = START_SLOT;
-    for (const chunk of chunks) {
-        const commandBuffer = createCommandBuffer(currentSlot, chunk);
-        await writeBufferToCharacteristic(commandBuffer);
-        currentSlot += chunk.length; // Update the starting slot for the next chunk
+// 6. Function to connect to the selected Bluetooth device.
+async function connectToDevice(device) {
+    // Check if the device is null.
+    if (device === null) {
+        throw new Error('Device is null.');
     }
 
-    // Optionally, wait for all writes to finish
-    console.log(`All ${totalSlots} slots set to value:`, value);
-}
-
-
-// --------------------------------------------------------
-async function connectDevice() {
-    if (device.gatt.connected) return;
-
+    // Connect to the device's GATT server and get the primary service.
     const server = await device.gatt.connect();
-    const service = await server.getPrimaryService(DMX_DATA_SERVICE_UUID);
+    if (server === null) {
+        throw new Error('Server is null.');
+    } else {
+        console.log('Connected to device:', device.name);
+        const service = await server.getPrimaryService(SERVICE_UUID);
 
-    const characteristic = await service.getCharacteristic(DMX_CHARACTERISTIC_UUID);
-    isConnected = true;
-    console.log('Connected to the device');
-    console.log(characteristic);
-    console.log(channels);
-    console.log(slotWritten);
-    setAllSlotsToValue(TARGET_VALUE, TOTAL_SLOTS, MTU);
-    return characteristic;
+        // Get the characteristic within the service that we want to access.
+        const characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
-
+        // Call function to send DMX data using the characteristic.
+        await sendDMXData(characteristic);
+    }
 }
 
-async function requestDevice() {
-    device = await navigator.bluetooth.requestDevice({
-        // connection to any device
-        acceptAllDevices: true,
-        optionalServices: [DMX_DATA_SERVICE_UUID],
-    });
+// 7. Function to send DMX data to the connected device.
+async function sendDMXData(characteristic) {
+    // Create a Uint8Array to store the DMX data.
+    const dmxData = new Uint8Array(TOTAL_SLOTS);
+
+    // Set each slot in the DMX data to the target value.
+    for (let i = 0; i < TOTAL_SLOTS; i++) {
+        dmxData[i] = TARGET_VALUE;
+    }
+
+    // Write the DMX data to the characteristic.
+    await characteristic.writeValue(dmxData);
+
+    // Log a success message.
+    console.log('DMX data sent successfully.');
 }
 
+// 8. Event listener to start scanning for devices when the start button
+//    is clicked. The event listener is added when the page is loaded.
 document.addEventListener('DOMContentLoaded', () => {
     const button = document.querySelector('.button');
     let characteristic; // Define characteristic variable here
+    
+    // Add event listener to the start button to call the scanForDevices function
+    // when the button is clicked.
+    document.querySelector('.button').addEventListener('click', scanForDevices);
 
-    button.addEventListener('click', async () => {
+    // Event listener for the "min" button to set all slots to 0 when clicked.
+    document.querySelector('.min').addEventListener('click', () => {
+        if (isConnected) { // Check if device is connected
+            const dmxData = new Uint8Array(TOTAL_SLOTS); // Create a Uint8Array to store the DMX data
 
-        if (!device) await requestDevice();
+            // Set each slot in the DMX data to 0.
+            for (let i = 0; i < TOTAL_SLOTS; i++) {
+                dmxData[i] = 0;
+            }
 
-        await connectDevice();
+            // Write the DMX data to the characteristic.
+            characteristic.writeValue(dmxData);
+        }
     });
-
 });
+
+// 9. Event listener for the start button.
+
+
