@@ -4,3 +4,11 @@ Service UUID: bfa00000-247d-6e1c-448c-223dfa0bd00c
 
 development board:
 Service UUID: bfa00000-247d-6e1c-448c-223dfa0bd00c
+
+F9:C4:F7:4D:51:44
+id:"5i61CziH/0io3ohU1Uqd7g=="
+name:"development board"
+
+Service: bfa00000-247d-6e1c-448c-223dfa0bd00c
+Characteristic: bfa00001-247d-6e1c-448c-223dfa0bd00c
+Characteristic: bfa00002-247d-6e1c-448c-223dfa0bd00c
