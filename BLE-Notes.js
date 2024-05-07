@@ -1,3 +1,4 @@
+/*
 BLE Interface¶
 The TimoTwo module comprises a BLE based interface that allows for configuration of the device as well as transfer of DMX data to the device.
 
@@ -102,3 +103,5 @@ Data size	1 byte
 Read this characteristic to see if data can safely be written to the TX characteristic. This characteristic has a value of 0 after data has been written, until the host MCU has read the data from the SPI interface. After host has read the data, this characteristic has a value of 1 and it's safe to write more data.
 
 Notifications of changes are supported on this characteristic.
+
+*/
