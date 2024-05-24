@@ -1,41 +1,20 @@
 // Constants for BLE service and characteristic UUIDs
 const SERVICE_UUID = 'bfa00000-247d-6e1c-448c-223dfa0bd00c';
 const CHARACTERISTIC_UUID = 'bfa00001-247d-6e1c-448c-223dfa0bd00c';
-const MAX_TRANSMISSION_UNIT = 20; // Typically 20 bytes for BLE 4.2
 
 // Global state
-let isConnected = false;
-let device;
-let characteristic;
+const NUMSLOTS = 512; // Number of slots in the DMX output
+const MAXCHUNKSIZE = 125; // 18 bytes = 20 bytes MTU - 2 bytes for the header
 
-let slider1;
-let slider2;
-let slider3;
-let slider4;
-let slider5;
-let slider6;
-let slider7;
-let slider8;
+let isConnected = false; // Flag to track if the device is connected
+let device; // The selected device
+let characteristic; // The selected characteristic
+let statusMessage; // The status message element
+let dmxArray = []; // The array to store the DMX values
+let characteristicInUse = false;
 
-// Function to initialize a DMX changes array and set all slot values to 255
-function initializeDMXChanges(slots) {
-    const changeSize = 3; // Each change is 3 bytes: 2 for slot number, 1 for value
-    const changes = new Uint8Array(changeSize * slots.length);
 
-    for (let i = 0; i < slots.length; i++) {
-        const slotNumber = slots[i][0]; // Only take the slot number
 
-        // Encode the slot number in little-endian (2 bytes)
-        changes[i * changeSize] = slotNumber & 0xFF; // LSB
-        changes[i * changeSize + 1] = (slotNumber >> 8) & 0xFF; // MSB
-
-        // Set the value to 255 (1 byte)
-        changes[i * changeSize + 2] = 255;
-    }
-
-    console.log('Prepared DMX data:', Array.from(changes));
-    return changes;
-}
 
 // Function to scan for devices and connect to the first one found
 async function scanForDevices() {
@@ -45,9 +24,13 @@ async function scanForDevices() {
             optionalServices: [SERVICE_UUID]
         });
         console.log('Found device:', device.name);
+        statusMessage.textContent = 'Device found: ' + device.name;
         await connectToDevice(device);
     } catch (error) {
         console.error('Scanning error:', error);
+        if (statusMessage) {
+            statusMessage.textContent = 'Scanning error: ' + error;
+        }
     }
 }
 
@@ -57,56 +40,24 @@ async function connectToDevice(selectedDevice) {
         const server = await selectedDevice.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+        // Update global state
+        device = selectedDevice;
         isConnected = true;
-        console.log('Connected to device:', selectedDevice.name);
 
-        // Example slot changes
-        const slotsToChange = [
-            [0, 0], [1, 0], [2, 0], [3, 0], [4, 0],
-            [5, 0], [6, 0], [7, 0], [8, 0], [9, 0]
-        ];
+        console.log('Connected to device:', device.name);
+        statusMessage.textContent = 'Connected to device: ' + device.name;
 
-        // Send initialized DMX changes once connected
-        const dmxChanges = initializeDMXChanges(slotsToChange);
-        await sendDMXDataInChunks(dmxChanges);
+        // Enable DMX output
+        await enableDMX();
+
     } catch (error) {
         console.error('Connection error:', error);
-    }
-}
-
-// Function to send data in chunks to the BLE characteristic
-async function sendDMXDataInChunks(dmxData) {
-    if (!characteristic) {
-        console.error('Characteristic is not set.');
-        return;
-    }
-
-    try {
-        let offset = 0;
-        while (offset < dmxData.length) {
-            const chunkSize = Math.min(MAX_TRANSMISSION_UNIT, dmxData.length - offset);
-            const chunk = dmxData.slice(offset, offset + chunkSize);
-            console.log('Writing DMX data chunk:', Array.from(chunk));
-            await characteristic.writeValue(chunk);
-            offset += chunkSize;
+        if (statusMessage) {
+            statusMessage.textContent = 'Connection error: ' + error;
         }
-        console.log('DMX data successfully written to all slots in chunks.');
-    } catch (error) {
-        console.error('Error writing DMX data in chunks:', error);
     }
 }
-
-async function sendDMXData() {
-    if (!isConnected) {
-        await reconnect();
-    }
-    const dmxData = new Uint8Array(3);
-    dmxData[0] = 0;
-    dmxData[1] = 1;
-    dmxData[2] = 255;
-    await characteristic.writeValue(dmxData);
-}
-
 
 // Reconnect if disconnected previously
 async function reconnect() {
@@ -122,68 +73,128 @@ async function reconnect() {
     }
 }
 
-// function to take slider value and send it to slot 1 of the device 
+// enable DMX output of the selected device NOTE: all slots must be sent for DMX output to work 
+async function enableDMX() {
+    try {
+        
+        for (let i = 0; i < NUMSLOTS; i += MAXCHUNKSIZE) {
+            const chunkSize = Math.min(MAXCHUNKSIZE, NUMSLOTS - i);
+            const header = ((chunkSize << 9) & 0xFE00) | (i & 0x01FF);
+    
+            const chunk = new Uint8Array(2 + chunkSize);
+            chunk[0] = header & 0xFF;
+            chunk[1] = (header >> 8) & 0xFF;
+      
+            for (let j = 0; j < chunkSize; j++) {
+              chunk[2 + j] = 0x00; // Defalt value for all slots/channels
+            }
+      
+            console.log(chunk);
+            await characteristic.writeValueWithoutResponse(chunk);
+        }
 
-async function sendSliderValue() {
-    if (!isConnected) {
-        await reconnect();
 
+        
+    } catch (error) {
+        console.error('Error starting DMX output:', error);
     }
 
-    let numberOfSlots = 0x00;
-    let slotNumber = numberOfSlots - 1;
+    console.log("DMX output enabled");
+} 
 
 
+// function to send only the give slots the DMX data to the connected device 
+async function sendDMX(dmxArray) {
+    if (!isConnected) {
+      console.error('Device is not connected.');
+      reconnect();
+      return;
+    }
+  
+    if (characteristicInUse) {
+      console.log('Characteristic is already in use.');
+      return;
+    }
+  
+    characteristicInUse = true;
+  
+    try {
+      for (let i = 0; i < dmxArray.length; i += MAXCHUNKSIZE) {
+        const chunkSize = Math.min(MAXCHUNKSIZE, dmxArray.length - i);
+        const startSlot = dmxArray[i].slot;  // Assuming dmxArray contains objects with slot and value
+        const header = ((chunkSize << 9) & 0xFE00) | ((startSlot - 1) & 0x01FF);
+  
+        const chunk = new Uint8Array(2 + chunkSize);
+        chunk[0] = header & 0xFF;
+        chunk[1] = (header >> 8) & 0xFF;
+  
+        for (let j = 0; j < chunkSize; j++) {
+          chunk[2 + j] = dmxArray[i + j].value;  // Set DMX values from the array
+        }
+  
+        console.log(chunk);
+        await characteristic.writeValueWithoutResponse(chunk);
+      }
+  
+      // console.log('DMX output started.');
+    } catch (error) {
+      console.error('Error starting DMX output:', error);
+    } finally {
+      characteristicInUse = false;
+    }
+  }
 
-    // combine the slotAndNumberOfSlots and slotValue into a byte buffer
-    const buffer = new ArrayBuffer(10);
-    const view = new DataView(buffer);
-    view.setUint8(0, slotNumber);
-    view.setUint8(1, numberOfSlots);
-    view.setUint8(2, document.getElementById('myRange1').value);
-    view.setUint8(3, document.getElementById('myRange2').value);
-    view.setUint8(4, document.getElementById('myRange3').value);
-    view.setUint8(5, 0);
-    view.setUint8(6, 0);
-    view.setUint8(7, 0);
-    view.setUint8(8, 0);
-    view.setUint8(9, 0);
-    
-
-
-    // write the buffer to the characteristic
-    console.log(numberOfSlots, slotNumber, buffer);
-    await characteristic.writeValue(buffer);
-
-}
-
+window.addEventListener("load", startup, false);
 
 // Add event listeners for the scan button
 document.addEventListener('DOMContentLoaded', () => {
+    statusMessage = document.getElementById('status');
+
     document.querySelector('.button').addEventListener('click', scanForDevices);
-    // get slier value
-    document.querySelector('.slider1').addEventListener('input', (event) => {
-        const value = event.target.value;
-        // set global variable slider1 to value
-        slider1 = value;
-        sendSliderValue();
-    });
-    document.querySelector('.slider2').addEventListener('input', (event) => {
-        const value = event.target.value;
-        // set global variable slider1 to value
-        slider2 = value;
-        sendSliderValue();
-    });
-    document.querySelector('.slider3').addEventListener('input', (event) => {
-        const value = event.target.value;
-        // set global variable slider1 to value
-        slider3 = value;
-        sendSliderValue();
+
+    document.querySelector('.max').addEventListener('click', () => {
 
     });
 
-    const colorPicker = document.getElementById('colorPicker');
-    const colorDisplay = document.getElementById('colorDisplay');
+    document.querySelector('#masterDimmer').addEventListener('input', () => {
 
-   
+        const MD = document.querySelector('#masterDimmer').value;
+        // console.log(MD);
+        const dmxArray = [ 
+            { slot: 1, value: MD },
+           
+          ];
+
+        sendDMX(dmxArray);
+    
+    });
+    
+
+
 });
+
+function startup() {
+    colorPicker = document.querySelector("#color");
+    colorPicker.value ="#FF0000";
+    colorPicker.addEventListener("input", updateFirst, false);
+    colorPicker.select();
+  }
+
+  function updateFirst(event) {
+    // console.log("Update First color: ", colorPicker.value);
+    // concert the color code to hex format to rgb values
+    const red = parseInt(colorPicker.value.slice(1, 3), 16);
+    const green = parseInt(colorPicker.value.slice(3, 5), 16);
+    const blue = parseInt(colorPicker.value.slice(5, 7), 16);
+    console.log("RGB values:", red, green, blue);
+
+    const dmxArray = [ 
+      { slot: 1, value: red },
+      { slot: 2, value: green },
+      { slot: 3, value: blue },
+    ];
+
+    sendDMX(dmxArray);
+    
+  }
+

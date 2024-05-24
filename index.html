@@ -6,6 +6,7 @@
 
     <!-- add javascript -->
     <script src="bluetooth.js"></script>
+    <!-- <script src="test.js"></script> -->
 
     <link rel="stylesheet" href="style.css">
     <title>Document</title>
@@ -15,24 +16,15 @@
 
         <H1>Bluetooh Test</H1>
         <button class="button">Start</button>
-        <p class="status">Status: </p>
+        <p class="status" id="status">Status: </p>
         <p class="status-message"></p>
 
         <button class="max">All Max</button>
-        <button class="min">All Min</button>
         <br>
 
-        <div class="slidecontainer" >
-            <input type="range" min="0" max="255" value="127" class="slider1" id="myRange1">
-            <input type="range" min="0" max="255" value="127" class="slider2" id="myRange2">
-            <input type="range" min="0" max="255" value="127" class="slider3" id="myRange3">
-        </div>
-        
-        <div class="colorPicker">
-            <input type="color" id="colorPicker" title="Choose your color">
-            <div id="colorDisplay">Selected Color: #000000</div>
-        </div>
-
+        <input type="range" id="masterDimmer" min="0" max="255" value="0" step="1">
+        <!--  color picker -->
+        <input type="color" id="color" >
     
     </div>
 
