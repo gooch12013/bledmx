@@ -3,32 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <!-- add javascript -->
     <script src="bluetooth.js"></script>
-    <!-- <script src="test.js"></script> -->
-
     <link rel="stylesheet" href="style.css">
-    <title>Document</title>
+    <title>Bluetooth DMX Controller</title>
 </head>
 <body>
     <div class="app">
+        <h1>Bluetooth DMX Controller</h1>
+        <button id="scanButton" class="button">Start</button>
+        <p id="status">Status: </p>
+        <p id="statusMessage" class="status-message"></p>
 
-        <H1>Bluetooh Test</H1>
-        <button class="button">Start</button>
-        <p class="status" id="status">Status: </p>
-        <p class="status-message"></p>
-
-        <button class="max">All Max</button>
+        <button id="allMaxButton" class="max">All Max</button>
         <br>
 
+        <label for="masterDimmer">Master Dimmer:</label>
         <input type="range" id="masterDimmer" min="0" max="255" value="0" step="1">
-        <!--  color picker -->
-        <input type="color" id="color" >
-        
-        
-    </div>
+        <br>
 
-    
+        <label for="color">Color Picker:</label>
+        <input type="color" id="color">
+        <br>
+
+        <label for="fadeTime">Fade Time (ms):</label>
+        <input type="number" id="fadeTime" min="0" max="1000" value="0" step="1">
+        <label for="HoldTime">Hold Time (ms):</label>
+        <input type="number" id="HoldTime" min="0" max="1000" value="0" step="1">
+        <label for="color1">Color 1:</label>
+        <input type="color" id="color1">
+        <label for="color2">Color 2:</label>
+        <input type="color" id="color2">
+        <button id="fadeButton" class="fade">Fade Start/Stop</button>
+    </div>
 </body>
 </html>

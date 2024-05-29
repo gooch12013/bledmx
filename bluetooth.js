@@ -3,59 +3,53 @@ const SERVICE_UUID = 'bfa00000-247d-6e1c-448c-223dfa0bd00c';
 const CHARACTERISTIC_UUID = 'bfa00001-247d-6e1c-448c-223dfa0bd00c';
 
 // Global state
-const NUMSLOTS = 512; // Number of slots in the DMX output
-const MAXCHUNKSIZE = 125; // 18 bytes = 20 bytes MTU - 2 bytes for the header
-const HEADER_SIZE = 2; // Header size in bytes
-const MTU_SIZE = 20; // Maximum Transmission Unit size
-const TRANSMIT_DELAY = 50; // Delay between each DMX chunk transmission in milliseconds
+const NUM_SLOTS = 512;
+const MAX_CHUNK_SIZE = 125;
+const HEADER_SIZE = 2;
+const MTU_SIZE = 20;
+const TRANSMIT_DELAY = 70;
 
-let isConnected = false; // Flag to track if the device is connected
-let device; // The selected device
-let characteristic; // The selected characteristic
-let statusMessage; // The status message element
-let dmxArray = []; // The array to store the DMX values
-let characteristicInUse = false; // Flag to track if the characteristic is currently in use
+let isConnected = false;
+let device;
+let characteristic;
+let statusMessage;
+let dmxArray = [];
+let characteristicInUse = false;
+let isFading = false; // Flag to control the fade loop
 
 // Function to scan for devices and connect to the first one found
 async function scanForDevices() {
   try {
-    // Request a Bluetooth device
     device = await navigator.bluetooth.requestDevice({
       acceptAllDevices: true,
       optionalServices: [SERVICE_UUID]
     });
     console.log('Found device:', device.name);
     statusMessage.textContent = 'Device found: ' + device.name;
-    await connectToDevice(device); // Connect to the found device
+    await connectToDevice(device);
   } catch (error) {
     console.error('Scanning error:', error);
-    if (statusMessage) {
-      statusMessage.textContent = 'Scanning error: ' + error;
-    }
+    statusMessage.textContent = 'Scanning error: ' + error;
   }
 }
 
 // Function to connect to the selected device
 async function connectToDevice(selectedDevice) {
   try {
-    const server = await selectedDevice.gatt.connect(); // Connect to the GATT server
-    const service = await server.getPrimaryService(SERVICE_UUID); // Get the primary service
-    characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID); // Get the characteristic
+    const server = await selectedDevice.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
-    // Update global state
     device = selectedDevice;
     isConnected = true;
 
     console.log('Connected to device:', device.name);
     statusMessage.textContent = 'Connected to device: ' + device.name;
 
-    // Enable DMX output
     await enableDMX();
   } catch (error) {
     console.error('Connection error:', error);
-    if (statusMessage) {
-      statusMessage.textContent = 'Connection error: ' + error;
-    }
+    statusMessage.textContent = 'Connection error: ' + error;
   }
 }
 
@@ -67,31 +61,29 @@ async function reconnect() {
   }
 
   try {
-    await connectToDevice(device); // Attempt to reconnect to the device
+    await connectToDevice(device);
   } catch (error) {
     console.error('Reconnection error:', error);
   }
 }
 
-// Enable DMX output of the selected device NOTE: all slots must be sent for DMX output to work 
+// Enable DMX output for the connected device
 async function enableDMX() {
   try {
-    // Iterate through all DMX slots
-    for (let i = 0; i < NUMSLOTS; i += MAXCHUNKSIZE) {
-      const chunkSize = Math.min(MAXCHUNKSIZE, NUMSLOTS - i); // Calculate the chunk size
-      const header = ((chunkSize << 9) & 0xFE00) | (i & 0x01FF); // Create the header
+    for (let i = 0; i < NUM_SLOTS; i += MAX_CHUNK_SIZE) {
+      const chunkSize = Math.min(MAX_CHUNK_SIZE, NUM_SLOTS - i);
+      const header = ((chunkSize << 9) & 0xFE00) | (i & 0x01FF);
 
-      // Create the data chunk with the header and default DMX values (0x00)
       const chunk = new Uint8Array(HEADER_SIZE + chunkSize);
       chunk[0] = header & 0xFF;
       chunk[1] = (header >> 8) & 0xFF;
 
       for (let j = 0; j < chunkSize; j++) {
-        chunk[HEADER_SIZE + j] = 0x00; // Default value for all slots/channels
+        chunk[HEADER_SIZE + j] = 0x00;
       }
 
       console.log(chunk);
-      await characteristic.writeValueWithoutResponse(chunk); // Write the chunk to the characteristic
+      await characteristic.writeValueWithoutResponse(chunk);
     }
   } catch (error) {
     console.error('Error starting DMX output:', error);
@@ -100,94 +92,171 @@ async function enableDMX() {
   console.log("DMX output enabled");
 }
 
-// Function to send only the given slots the DMX data to the connected device 
+// Function to send DMX data to the connected device
 async function sendDMX(dmxArray) {
   if (!isConnected) {
     console.error('Device is not connected.');
-    await reconnect(); // Attempt to reconnect if not connected
+    await reconnect();
     return;
   }
 
   if (characteristicInUse) {
-    console.log('Characteristic is already in use.');
     return;
   }
 
   characteristicInUse = true;
 
   try {
-    // Function to send DMX data chunk by chunk with a delay
     const sendChunks = async (startIndex) => {
       if (startIndex >= dmxArray.length) {
         characteristicInUse = false;
         return;
       }
 
-      const chunkSize = Math.min(MAXCHUNKSIZE, dmxArray.length - startIndex); // Calculate the chunk size
-      const startSlot = dmxArray[startIndex].slot; // Get the start slot from the DMX array
-      const header = ((chunkSize << 9) & 0xFE00) | ((startSlot - 1) & 0x01FF); // Create the header
+      const chunkSize = Math.min(MAX_CHUNK_SIZE, dmxArray.length - startIndex);
+      const startSlot = dmxArray[startIndex].slot;
+      const header = ((chunkSize << 9) & 0xFE00) | ((startSlot - 1) & 0x01FF);
 
-      // Create the data chunk with the header and DMX values from the array
       const chunk = new Uint8Array(HEADER_SIZE + chunkSize);
       chunk[0] = header & 0xFF;
       chunk[1] = (header >> 8) & 0xFF;
 
       for (let j = 0; j < chunkSize; j++) {
-        chunk[HEADER_SIZE + j] = dmxArray[startIndex + j].value; // Set DMX values from the array
+        chunk[HEADER_SIZE + j] = dmxArray[startIndex + j].value;
       }
 
-      await characteristic.writeValueWithoutResponse(chunk); // Write the chunk to the characteristic
+      await characteristic.writeValueWithoutResponse(chunk);
 
-      // Schedule the next chunk transmission
       setTimeout(() => sendChunks(startIndex + chunkSize), TRANSMIT_DELAY);
     };
 
-    sendChunks(0); // Start sending chunks from the beginning
+    sendChunks(0);
   } catch (error) {
     console.error('Error sending DMX data:', error);
-    characteristicInUse = false; // Reset the flag in case of an error
+    characteristicInUse = false;
   }
+}
+
+// Function to fade between two colors indefinitely until the button is clicked again, including hold time
+function setFade() {
+  if (isFading) {
+    isFading = false;
+    // Set RGB values to 0 and send to BLE
+    const dmxArray = [
+      { slot: 1, value: 0 },
+      { slot: 2, value: 0 },
+      { slot: 3, value: 0 },
+    ];
+    sendDMX(dmxArray);
+    return;
+  }
+
+  isFading = true;
+  const color1 = document.getElementById('color1').value;
+  const color2 = document.getElementById('color2').value;
+  const fadeTime = parseInt(document.getElementById('fadeTime').value, 10);
+  const holdTime = parseInt(document.getElementById('HoldTime').value, 10); // Get hold time from input
+
+  const color1RGB = hexToRgb(color1);
+  const color2RGB = hexToRgb(color2);
+
+  const steps = fadeTime / TRANSMIT_DELAY;
+  const stepChange = {
+    r: (color2RGB.r - color1RGB.r) / steps,
+    g: (color2RGB.g - color1RGB.g) / steps,
+    b: (color2RGB.b - color1RGB.b) / steps,
+  };
+
+  let currentStep = 0;
+  let direction = 1;
+  let holding = false;
+
+  const fadeInterval = setInterval(() => {
+    if (!isFading) {
+      clearInterval(fadeInterval);
+      return;
+    }
+
+    if (holding) {
+      return;
+    }
+
+    const currentColor = {
+      r: clamp(Math.round(color1RGB.r + stepChange.r * currentStep), 0, 255),
+      g: clamp(Math.round(color1RGB.g + stepChange.g * currentStep), 0, 255),
+      b: clamp(Math.round(color1RGB.b + stepChange.b * currentStep), 0, 255),
+    };
+
+    const dmxArray = [
+      { slot: 1, value: currentColor.r },
+      { slot: 2, value: currentColor.g },
+      { slot: 3, value: currentColor.b },
+    ];
+
+    sendDMX(dmxArray);
+    currentStep += direction;
+
+    if (currentStep >= steps || currentStep <= 0) {
+      direction *= -1; // Reverse the fade direction
+      holding = true;
+      setTimeout(() => {
+        holding = false;
+      }, holdTime);
+    }
+  }, TRANSMIT_DELAY);
+}
+
+// Helper function to clamp a value between min and max
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+// Convert hex color to RGB
+function hexToRgb(hex) {
+  return {
+    r: parseInt(hex.slice(1, 3), 16),
+    g: parseInt(hex.slice(3, 5), 16),
+    b: parseInt(hex.slice(5, 7), 16),
+  };
 }
 
 // Initialize the app and set up event listeners
 window.addEventListener("load", startup, false);
 
 document.addEventListener('DOMContentLoaded', () => {
-  statusMessage = document.getElementById('status'); // Get the status message element
+  statusMessage = document.getElementById('status');
 
-  // Add event listener for the scan button
-  document.querySelector('.button').addEventListener('click', scanForDevices);
-
-  // Add event listener for the max button (functionality can be added as needed)
-  document.querySelector('.max').addEventListener('click', () => {
+  document.querySelector('#scanButton').addEventListener('click', scanForDevices);
+  document.querySelector('#allMaxButton').addEventListener('click', () => {
     // Add functionality for the max button if needed
   });
 
-  // Add event listener for the master dimmer input
   document.querySelector('#masterDimmer').addEventListener('input', () => {
-    const MD = document.querySelector('#masterDimmer').value;
+    const masterDimmerValue = document.querySelector('#masterDimmer').value;
     const dmxArray = [
-      { slot: 1, value: MD },
+      { slot: 1, value: masterDimmerValue },
     ];
 
-    sendDMX(dmxArray); // Send DMX data with the master dimmer value
+    sendDMX(dmxArray);
   });
+
+  document.querySelector('#fadeButton').addEventListener('click', setFade);
 });
 
 // Set up the color picker and its event listener
 function startup() {
   const colorPicker = document.querySelector("#color");
-  colorPicker.value = "#FF0000"; // Set default color
-  colorPicker.addEventListener("input", updateFirst, false); // Add event listener for color input
-  colorPicker.select(); // Select the color picker
+  colorPicker.value = "#FF0000";
+  colorPicker.addEventListener("input", updateColor, false);
+  colorPicker.select();
 }
 
 // Function to update DMX values based on the selected color
-function updateFirst(event) {
+function updateColor(event) {
   const colorPicker = event.target;
-  const red = parseInt(colorPicker.value.slice(1, 3), 16); // Extract red value
-  const green = parseInt(colorPicker.value.slice(3, 5), 16); // Extract green value
-  const blue = parseInt(colorPicker.value.slice(5, 7), 16); // Extract blue value
+  const red = parseInt(colorPicker.value.slice(1, 3), 16);
+  const green = parseInt(colorPicker.value.slice(3, 5), 16);
+  const blue = parseInt(colorPicker.value.slice(5, 7), 16);
   console.log("RGB values:", red, green, blue);
 
   const dmxArray = [
@@ -196,5 +265,5 @@ function updateFirst(event) {
     { slot: 3, value: blue },
   ];
 
-  sendDMX(dmxArray); // Send DMX data with the selected color values
+  sendDMX(dmxArray);
 }
