@@ -52,3 +52,9 @@ button {
     flex-direction: row;
     gap: 20px;
 }
+
+#masterDimmer{
+
+    width: 100%;
+
+}
